@@ -184,16 +184,16 @@ async function loadAdmin(){
  <label>Araç</label>
  <select id="v${t.id}">
  <option value="">Atanmadı</option>
- ${vehicles.map(v=><option value="${v.id}" ${t.assigned_vehicle_id===v.id?"selected":""}>${escapeHtml(v.name)}</option>).join("")}
+ ${vehicles.map(v=>`<option value="${v.id}" ${t.assigned_vehicle_id===v.id?"selected":""}>${escapeHtml(v.name)}</option>`).join("")}
  </select>
  <label>Şoför</label>
  <select id="d${t.id}">
  <option value="">Atanmadı</option>
- ${drivers.map(d=><option value="${d.id}" ${t.assigned_driver_id===d.id?"selected":""}>${escapeHtml(d.name)}</option>).join("")}
+ ${drivers.map(d=>`<option value="${d.id}" ${t.assigned_driver_id===d.id?"selected":""}>${escapeHtml(d.name)}</option>`).join("")}
  </select>
  <label>Durum</label>
  <select id="s${t.id}">
- ${["Bekliyor","Onaylandı","Araç atandı","Yolda","Tamamlandı","İptal edildi"].map(s=><option ${t.status===s?"selected":""}>${s}</option>).join("")}
+ ${["Bekliyor","Onaylandı","Araç atandı","Yolda","Tamamlandı","İptal edildi"].map(s=>`<option ${t.status===s?"selected":""}>${s}</option>`).join("")}
  </select>
  <button onclick="saveTask(${t.id})">Atamayı / Durumu Kaydet</button>
  </div>`).join("")||"Henüz talep yok.";
