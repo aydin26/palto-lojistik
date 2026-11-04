@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#101b2d">
+<link rel="manifest" href="./manifest.json">
 <title>PALTO LOJİSTİK</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
@@ -12,7 +13,7 @@ body{margin:0;background:#f1f4f8;color:#182438;font-family:Arial,sans-serif}
 header{background:#101b2d;color:white;padding:22px}
 header h1{margin:0;font-size:24px;letter-spacing:1px}
 header p{margin:7px 0 0;color:#bdc9d8}
-main{max-width:950px;margin:25px auto;padding:0 1a5px}
+main{max-width:950px;margin:25px auto;padding:0 15px}
 .card{background:white;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 3px 15px #14243a12}
 h2{margin-top:0;font-size:20px}
 input,select,textarea{width:100%;padding:12px;margin:7px 0 15px;border:1px solid #ccd4df;border-radius:8px;font-size:15px;background:white}
@@ -77,6 +78,8 @@ label{font-weight:bold;font-size:14px}
 
 <section id="adminPanel" class="card hidden">
 <h2>Yönetici Paneli</h2>
+<button id="enablePushBtn" onclick="enablePushNotifications()">🔔 Bu telefonda bildirimleri aç</button>
+<p id="pushMessage" class="muted">Yeni talep geldiğinde bu telefona bildirim gönderilir.</p>
 <div id="tasks"></div>
 </section>
 
@@ -90,27 +93,59 @@ label{font-weight:bold;font-size:14px}
 <script>
 const SUPABASE_URL = "https://lrehnuasrkyjagovvmzg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_kRaSk1kkBEKsSd3C2AGGXw_H1jocQRY";
+const VAPID_PUBLIC_KEY = "BLYkbVkB6vI7QqUQdc6m84xFX31VRTLcwp4qQkVHycl2Zsh7Dm0Ld2tnRsdGLA4slHi_lg3hSsWfA4Za-tZtId4";
 
-// Oturum telefonda saklanır; uygulama yeniden açıldığında otomatik yenilenir.
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  }
+  auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
 });
-
 const names = ["Metin","Mevlüt","Nazlı","Yusuf","Oğulcan","Eda","Umut","Canpolat","Serap","Seda"];
+let currentUser=null, currentRole=null, appStarting=false;
 
-let currentUser=null;
-let currentRole=null;
-let appStarting=false;
+document.getElementById("date").value = new Date().toLocaleDateString("en-CA");
+document.getElementById("requester").innerHTML = names.map(n => "<option>" + n + "</option>").join("");
 
-document.getElementById("date").value =
-new Date().toLocaleDateString("en-CA");
+function urlBase64ToUint8Array(base64String){
+ const padding="=".repeat((4-base64String.length%4)%4);
+ const base64=(base64String+padding).replace(/-/g,"+").replace(/_/g,"/");
+ const raw=window.atob(base64);
+ return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
 
-document.getElementById("requester").innerHTML =
-names.map(n => "<option>" + n + "</option>").join("");
+async function enablePushNotifications(){
+ const msg=document.getElementById("pushMessage");
+ const btn=document.getElementById("enablePushBtn");
+ try{
+   if(!currentUser){msg.textContent="Önce giriş yapmalısınız.";return;}
+   if(!("serviceWorker" in navigator) || !("PushManager" in window)){
+     msg.textContent="Bu cihaz/tarayıcı Web Push bildirimlerini desteklemiyor.";return;
+   }
+   if(!window.isSecureContext){msg.textContent="Bildirimler için güvenli HTTPS bağlantısı gerekli.";return;}
+   msg.textContent="Bildirim izni isteniyor...";
+   const permission=await Notification.requestPermission();
+   if(permission!=="granted"){msg.textContent="Bildirim izni verilmedi. iPhone Ayarlar > Bildirimler bölümünü kontrol edin.";return;}
+   const registration=await navigator.serviceWorker.register("./sw.js");
+   await navigator.serviceWorker.ready;
+   let subscription=await registration.pushManager.getSubscription();
+   if(!subscription){
+     subscription=await registration.pushManager.subscribe({
+       userVisibleOnly:true,
+       applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+     });
+   }
+   const {error}=await db.from("push_subscriptions").upsert({
+     user_id:currentUser.id,
+     endpoint:subscription.endpoint,
+     subscription:subscription.toJSON(),
+     updated_at:new Date().toISOString()
+   },{onConflict:"endpoint"});
+   if(error) throw error;
+   msg.textContent="Bildirimler bu telefonda etkinleştirildi! 🎉";
+   btn.textContent="🔔 Bildirimler açık";
+ }catch(e){
+   console.error(e);
+   msg.textContent="Bildirim kurulamadı: "+(e.message||e);
+ }
+}
 
 async function login(){
  const email=document.getElementById("email").value.trim();
@@ -123,68 +158,62 @@ async function login(){
 }
 
 async function startApp(user){
- if(appStarting) return;
+ if(appStarting)return;
  appStarting=true;
- try {
+ try{
    currentUser=user;
-   const {data:profile,error}=await db.from("profiles")
-     .select("full_name,role").eq("id",user.id).single();
-
+   const {data:profile,error}=await db.from("profiles").select("full_name,role").eq("id",user.id).single();
    if(error||!profile){
      document.getElementById("login").classList.remove("hidden");
      document.getElementById("app").classList.add("hidden");
-     document.getElementById("message").textContent=
-       "Kullanıcı profili bulunamadı. Lütfen yöneticiyle iletişime geçin.";
+     document.getElementById("message").textContent="Kullanıcı profili bulunamadı. Lütfen yöneticiyle iletişime geçin.";
      return;
    }
-
    currentRole=profile.role;
    document.getElementById("login").classList.add("hidden");
    document.getElementById("app").classList.remove("hidden");
    document.getElementById("welcome").textContent=profile.full_name;
    document.getElementById("role").textContent="Yetki: "+profile.role;
-
-   document.getElementById("requestPanel").classList.toggle("hidden",
-     !["admin","requester"].includes(currentRole));
-   document.getElementById("adminPanel").classList.toggle("hidden",
-     currentRole!=="admin");
-   document.getElementById("myRequests").classList.toggle("hidden",
-     currentRole!=="requester");
-
+   document.getElementById("requestPanel").classList.toggle("hidden",!["admin","requester"].includes(currentRole));
+   document.getElementById("adminPanel").classList.toggle("hidden",currentRole!=="admin");
+   document.getElementById("myRequests").classList.toggle("hidden",currentRole!=="requester");
    if(currentRole==="admin") await loadAdmin();
    if(currentRole==="requester") await loadOwn();
- } finally {
-   appStarting=false;
- }
+ }finally{appStarting=false;}
 }
 
 async function submitRequest(){
  const msg=document.getElementById("requestMessage");
  msg.textContent="Talep gönderiliyor...";
  const record={
- request_date:document.getElementById("date").value,
- request_time:document.getElementById("time").value||null,
- from_location:document.getElementById("from").value.trim(),
- to_location:document.getElementById("to").value.trim(),
- cargo:document.getElementById("cargo").value.trim(),
- vehicle_preference:document.getElementById("preference").value,
- requester:document.getElementById("requester").value,
- urgency:document.getElementById("urgency").value,
- description:document.getElementById("description").value.trim()||null
+  request_date:document.getElementById("date").value,
+  request_time:document.getElementById("time").value||null,
+  from_location:document.getElementById("from").value.trim(),
+  to_location:document.getElementById("to").value.trim(),
+  cargo:document.getElementById("cargo").value.trim(),
+  vehicle_preference:document.getElementById("preference").value,
+  requester:document.getElementById("requester").value,
+  urgency:document.getElementById("urgency").value,
+  description:document.getElementById("description").value.trim()||null
  };
  if(!record.request_date||!record.from_location||!record.to_location||!record.cargo){
- msg.textContent="Lütfen zorunlu alanları doldurun.";return;
+  msg.textContent="Lütfen zorunlu alanları doldurun.";return;
  }
  const {error}=await db.from("requests").insert(record);
  if(error){msg.textContent="Hata: "+error.message;return;}
  msg.textContent="Talebiniz başarıyla gönderildi!";
  ["from","to","cargo","description"].forEach(id=>document.getElementById(id).value="");
- if(currentRole==="requester") await loadOwn();
+ if(currentRole==="requester")await loadOwn();
+
+ // Yeni talep oluştuğunda yönetici cihazlarına sunucu üzerinden push gönder.
+ const {error:pushError}=await db.functions.invoke("send-push",{
+   body:{from_location:record.from_location,to_location:record.to_location,cargo:record.cargo,requester:record.requester,urgency:record.urgency}
+ });
+ if(pushError) console.warn("Bildirim gönderilemedi:",pushError.message);
 }
 
 async function loadOwn(){
- const {data,error}=await db.from("requests").select("*")
- .order("created_at",{ascending:false});
+ const {data,error}=await db.from("requests").select("*").order("created_at",{ascending:false});
  const box=document.getElementById("ownTasks");
  if(error){box.textContent=error.message;return;}
  box.innerHTML=data.map(taskCard).join("")||"Henüz talep yok.";
@@ -192,9 +221,9 @@ async function loadOwn(){
 
 async function loadAdmin(){
  const [{data:tasks,error},{data:vehicles},{data:drivers}]=await Promise.all([
- db.from("requests").select("*").order("request_date",{ascending:false}),
- db.from("vehicles").select("*").eq("active",true),
- db.from("drivers").select("*").eq("active",true)
+  db.from("requests").select("*").order("request_date",{ascending:false}),
+  db.from("vehicles").select("*").eq("active",true),
+  db.from("drivers").select("*").eq("active",true)
  ]);
  const box=document.getElementById("tasks");
  if(error){box.textContent=error.message;return;}
@@ -204,18 +233,11 @@ async function loadAdmin(){
  <b>${escapeHtml(t.from_location)} → ${escapeHtml(t.to_location)}</b>
  <p>${escapeHtml(t.cargo)} · ${escapeHtml(t.requester)}</p>
  <p class="muted">${t.request_date} ${t.request_time||""} · ${escapeHtml(t.status)}</p>
- <label>Araç</label>
- <select id="v${t.id}">
- <option value="">Atanmadı</option>
-${vehicles.map(v => '<option value="' + v.id + '" ' + (t.assigned_vehicle_id == v.id ? 'selected' : '') + '>' + escapeHtml(v.name) + '</option>').join('')}
- </select>
- <label>Şoför</label>
- <select id="d${t.id}">
- <option value="">Atanmadı</option>
-${drivers.map(d => '<option value="' + d.id + '" ' + (t.assigned_driver_id == d.id ? 'selected' : '') + '>' + escapeHtml(d.name) + '</option>').join('')}
- </select>
- <label>Durum</label>
- <select id="s${t.id}">
+ <label>Araç</label><select id="v${t.id}"><option value="">Atanmadı</option>
+ ${vehicles.map(v=>'<option value="'+v.id+'" '+(t.assigned_vehicle_id==v.id?'selected':'')+'>'+escapeHtml(v.name)+'</option>').join('')}</select>
+ <label>Şoför</label><select id="d${t.id}"><option value="">Atanmadı</option>
+ ${drivers.map(d=>'<option value="'+d.id+'" '+(t.assigned_driver_id==d.id?'selected':'')+'>'+escapeHtml(d.name)+'</option>').join('')}</select>
+ <label>Durum</label><select id="s${t.id}">
  ${["Bekliyor","Onaylandı","Araç atandı","Yolda","Tamamlandı","İptal edildi"].map(s=>`<option ${t.status===s?"selected":""}>${s}</option>`).join("")}
  </select>
  <button onclick="saveTask(${t.id})">Atamayı / Durumu Kaydet</button>
@@ -227,13 +249,11 @@ async function saveTask(id){
  const driver=document.getElementById("d"+id).value;
  const status=document.getElementById("s"+id).value;
  const {error}=await db.from("requests").update({
- assigned_vehicle_id:vehicle?Number(vehicle):null,
- assigned_driver_id:driver?Number(driver):null,
- status
+  assigned_vehicle_id:vehicle?Number(vehicle):null,
+  assigned_driver_id:driver?Number(driver):null,status
  }).eq("id",id);
  if(error){alert("Kaydedilemedi: "+error.message);return;}
- alert("Görev güncellendi.");
- await loadAdmin();
+ alert("Görev güncellendi.");await loadAdmin();
 }
 
 function taskCard(t){
@@ -241,34 +261,18 @@ function taskCard(t){
  <b>${escapeHtml(t.from_location)} → ${escapeHtml(t.to_location)}</b>
  <p>${escapeHtml(t.cargo)} · ${escapeHtml(t.requester)}</p>
  <p class="muted">${t.request_date} · ${escapeHtml(t.status)}</p>
- ${t.urgency==="Acil"?'<span class="tag">ACİL</span>':""}
- </div>`;
+ ${t.urgency==="Acil"?'<span class="tag">ACİL</span>':""}</div>`;
 }
-
 function escapeHtml(s){
- return String(s??"").replace(/[&<>"']/g,c=>({
- "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
- }[c]));
+ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+async function logout(){await db.auth.signOut();currentUser=null;currentRole=null;location.reload();}
 
-async function logout(){
- await db.auth.signOut();
- currentUser=null;
- currentRole=null;
- location.reload();
-}
-
-// Uygulama açıldığında kayıtlı oturum varsa giriş ekranını atla.
 (async function restoreSession(){
  const msg=document.getElementById("message");
  const {data,error}=await db.auth.getSession();
- if(error){
-   msg.textContent="Oturum kontrol edilemedi: "+error.message;
-   return;
- }
- if(data.session){
-   await startApp(data.session.user);
- }
+ if(error){msg.textContent="Oturum kontrol edilemedi: "+error.message;return;}
+ if(data.session)await startApp(data.session.user);
 })();
 </script>
 </body>
