@@ -101,8 +101,7 @@ document.getElementById("date").value =
 new Date().toLocaleDateString("en-CA");
 
 document.getElementById("requester").innerHTML =
-names.map(n=><option>${n}</option>).join("");
-
+names.map(n => <option>${n}</option>).join("");
 async function login(){
  const email=document.getElementById("email").value.trim();
  const password=document.getElementById("password").value;
