@@ -12,7 +12,7 @@ body{margin:0;background:#f1f4f8;color:#182438;font-family:Arial,sans-serif}
 header{background:#101b2d;color:white;padding:22px}
 header h1{margin:0;font-size:24px;letter-spacing:1px}
 header p{margin:7px 0 0;color:#bdc9d8}
-main{max-width:950px;margin:25px auto;padding:0 15px}
+main{max-width:950px;margin:25px auto;padding:0 1a5px}
 .card{background:white;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 3px 15px #14243a12}
 h2{margin-top:0;font-size:20px}
 input,select,textarea{width:100%;padding:12px;margin:7px 0 15px;border:1px solid #ccd4df;border-radius:8px;font-size:15px;background:white}
@@ -91,17 +91,27 @@ label{font-weight:bold;font-size:14px}
 const SUPABASE_URL = "https://lrehnuasrkyjagovvmzg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_kRaSk1kkBEKsSd3C2AGGXw_H1jocQRY";
 
-const db = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+// Oturum telefonda saklanır; uygulama yeniden açıldığında otomatik yenilenir.
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
+
 const names = ["Metin","Mevlüt","Nazlı","Yusuf","Oğulcan","Eda","Umut","Canpolat","Serap","Seda"];
 
 let currentUser=null;
 let currentRole=null;
+let appStarting=false;
 
 document.getElementById("date").value =
 new Date().toLocaleDateString("en-CA");
 
 document.getElementById("requester").innerHTML =
 names.map(n => "<option>" + n + "</option>").join("");
+
 async function login(){
  const email=document.getElementById("email").value.trim();
  const password=document.getElementById("password").value;
@@ -113,28 +123,41 @@ async function login(){
 }
 
 async function startApp(user){
- currentUser=user;
- const {data:profile,error}=await db.from("profiles")
- .select("full_name,role").eq("id",user.id).single();
+ if(appStarting) return;
+ appStarting=true;
+ try {
+   currentUser=user;
+   const {data:profile,error}=await db.from("profiles")
+     .select("full_name,role").eq("id",user.id).single();
 
- if(error||!profile){alert("Kullanıcı profili bulunamadı.");return;}
- currentRole=profile.role;
- document.getElementById("login").classList.add("hidden");
- document.getElementById("app").classList.remove("hidden");
- document.getElementById("welcome").textContent=profile.full_name;
- document.getElementById("role").textContent="Yetki: "+profile.role;
+   if(error||!profile){
+     document.getElementById("login").classList.remove("hidden");
+     document.getElementById("app").classList.add("hidden");
+     document.getElementById("message").textContent=
+       "Kullanıcı profili bulunamadı. Lütfen yöneticiyle iletişime geçin.";
+     return;
+   }
 
- document.getElementById("requestPanel").classList.toggle("hidden",
- !["admin","requester"].includes(currentRole));
- document.getElementById("adminPanel").classList.toggle("hidden",
- currentRole!=="admin");
- document.getElementById("myRequests").classList.toggle("hidden",
- currentRole!=="requester");
+   currentRole=profile.role;
+   document.getElementById("login").classList.add("hidden");
+   document.getElementById("app").classList.remove("hidden");
+   document.getElementById("welcome").textContent=profile.full_name;
+   document.getElementById("role").textContent="Yetki: "+profile.role;
 
- if(currentRole==="admin") await loadAdmin();
- if(currentRole==="requester") await loadOwn();
+   document.getElementById("requestPanel").classList.toggle("hidden",
+     !["admin","requester"].includes(currentRole));
+   document.getElementById("adminPanel").classList.toggle("hidden",
+     currentRole!=="admin");
+   document.getElementById("myRequests").classList.toggle("hidden",
+     currentRole!=="requester");
+
+   if(currentRole==="admin") await loadAdmin();
+   if(currentRole==="requester") await loadOwn();
+ } finally {
+   appStarting=false;
+ }
 }
-if(currentRole==="driver") await loadDriver();
+
 async function submitRequest(){
  const msg=document.getElementById("requestMessage");
  msg.textContent="Talep gönderiliyor...";
@@ -230,12 +253,23 @@ function escapeHtml(s){
 
 async function logout(){
  await db.auth.signOut();
+ currentUser=null;
+ currentRole=null;
  location.reload();
 }
 
-db.auth.getSession().then(({data})=>{
- if(data.session) startApp(data.session.user);
-});
+// Uygulama açıldığında kayıtlı oturum varsa giriş ekranını atla.
+(async function restoreSession(){
+ const msg=document.getElementById("message");
+ const {data,error}=await db.auth.getSession();
+ if(error){
+   msg.textContent="Oturum kontrol edilemedi: "+error.message;
+   return;
+ }
+ if(data.session){
+   await startApp(data.session.user);
+ }
+})();
 </script>
 </body>
 </html>
