@@ -134,7 +134,7 @@ async function startApp(user){
  if(currentRole==="admin") await loadAdmin();
  if(currentRole==="requester") await loadOwn();
 }
-
+if(currentRole==="driver") await loadDriver();
 async function submitRequest(){
  const msg=document.getElementById("requestMessage");
  msg.textContent="Talep gönderiliyor...";
