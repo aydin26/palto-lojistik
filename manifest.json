@@ -1,10 +1,10 @@
 {
-  "id": "/palto-lojistik/",
   "name": "PALTO LOJİSTİK",
   "short_name": "PALTO",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f1f4f8",
-  "theme_color": "#101b2d"
+  "background_color": "#ffffff",
+  "theme_color": "#17365d",
+  "description": "PALTO LOJİSTİK talep ve araç yönetim uygulaması"
 }
