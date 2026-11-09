@@ -100,7 +100,7 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 const names = ["Metin","Mevlüt","Nazlı","Yusuf","Oğulcan","Eda","Umut","Canpolat","Serap","Seda"];
 let currentUser=null, currentRole=null, appStarting=false;
-
+const VAPID_PUBLIC_KEY = "a98e04dca033b7a97017ca066686d359e7f39e207982aedae6aa007f0404b5ab";
 document.getElementById("date").value = new Date().toLocaleDateString("en-CA");
 document.getElementById("requester").innerHTML = names.map(n => "<option>" + n + "</option>").join("");
 
